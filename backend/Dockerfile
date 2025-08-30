@@ -24,6 +24,10 @@ RUN uv venv && \
 # Production stage
 FROM python:3.11-slim
 
+# Cache buster to force rebuild
+ARG CACHE_BUST=2025-08-30-22-15
+RUN echo "Cache bust: $CACHE_BUST"
+
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     curl \
@@ -64,7 +68,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Create startup script
 RUN echo '#!/bin/bash\nexec /app/.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}' > /app/start.sh && \
-    chmod +x /app/start.sh
+    chmod +x /app/start.sh && \
+    echo "Startup script created:" && cat /app/start.sh && \
+    echo "Script permissions:" && ls -la /app/start.sh
 
 # Command to run the application
 CMD ["/app/start.sh"]
