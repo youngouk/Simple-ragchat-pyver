@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dual Lambda RAG Chat Widget - 완전한 통합 예제</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header h1 {
+            margin: 0 0 10px 0;
+            color: #2d3748;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        
+        .header p {
+            margin: 0;
+            color: #4a5568;
+            font-size: 1.1rem;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .feature-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+        }
+        
+        .feature-card h3 {
+            margin: 0 0 15px 0;
+            color: #2d3748;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .feature-card p {
+            margin: 0 0 15px 0;
+            color: #4a5568;
+            line-height: 1.6;
+        }
+        
+        .controls {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            margin-bottom: 30px;
+        }
+        
+        .controls h3 {
+            margin: 0 0 20px 0;
+            color: #2d3748;
+            font-size: 1.3rem;
+        }
+        
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+        
+        .btn-secondary:hover {
+            background: #cbd5e0;
+            transform: translateY(-2px);
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .status-item {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .status-label {
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+        
+        .status-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+        
+        .demo-section {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        
+        .emoji {
+            font-size: 1.2em;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><span class="emoji">🤖</span> Dual Lambda RAG Chat Widget</h1>
+            <p>실제 동작하는 AI 채팅 위젯 데모 - AWS Lambda 기반 RAG 시스템</p>
+        </div>
+        
+        <div class="features">
+            <div class="feature-card">
+                <h3><span class="emoji">⚡</span> 실시간 스트리밍</h3>
+                <p>WebSocket을 통한 실시간 메시지 스트리밍으로 자연스러운 대화 경험을 제공합니다.</p>
+            </div>
+            
+            <div class="feature-card">
+                <h3><span class="emoji">📚</span> RAG 기반 답변</h3>
+                <p>문서 데이터베이스에서 관련 정보를 검색하여 정확하고 맥락적인 답변을 생성합니다.</p>
+            </div>
+            
+            <div class="feature-card">
+                <h3><span class="emoji">🎨</span> 완전한 커스터마이징</h3>
+                <p>색상, 테마, 위치 등 모든 UI 요소를 웹사이트에 맞게 자유롭게 커스터마이징할 수 있습니다.</p>
+            </div>
+            
+            <div class="feature-card">
+                <h3><span class="emoji">📱</span> 반응형 디자인</h3>
+                <p>데스크톱부터 모바일까지 모든 디바이스에서 완벽하게 작동하는 반응형 디자인입니다.</p>
+            </div>
+            
+            <div class="feature-card">
+                <h3><span class="emoji">🛡️</span> 보안 & 안정성</h3>
+                <p>XSS 방지, 입력 검증, 에러 핸들링 등 엔터프라이즈급 보안과 안정성을 제공합니다.</p>
+            </div>
+            
+            <div class="feature-card">
+                <h3><span class="emoji">♿</span> 접근성 지원</h3>
+                <p>스크린 리더, 키보드 내비게이션 등 웹 접근성 표준을 완벽히 준수합니다.</p>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <h3><span class="emoji">🎮</span> 위젯 컨트롤</h3>
+            
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="openWidget()">
+                    <span class="emoji">💬</span> 채팅 시작
+                </button>
+                <button class="btn btn-secondary" onclick="closeWidget()">
+                    <span class="emoji">❌</span> 채팅 종료
+                </button>
+                <button class="btn btn-secondary" onclick="sendTestMessage()">
+                    <span class="emoji">📤</span> 테스트 메시지
+                </button>
+                <button class="btn btn-secondary" onclick="clearChat()">
+                    <span class="emoji">🗑️</span> 대화 지우기
+                </button>
+            </div>
+            
+            <div class="button-group">
+                <button class="btn btn-secondary" onclick="toggleTheme()">
+                    <span class="emoji">🌓</span> 테마 변경
+                </button>
+                <button class="btn btn-secondary" onclick="changePosition()">
+                    <span class="emoji">📍</span> 위치 변경
+                </button>
+                <button class="btn btn-secondary" onclick="changeColor()">
+                    <span class="emoji">🎨</span> 색상 변경
+                </button>
+                <button class="btn btn-secondary" onclick="toggleLanguage()">
+                    <span class="emoji">🌍</span> 언어 변경
+                </button>
+            </div>
+            
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-label">위젯 상태</div>
+                    <div class="status-value" id="widgetStatus">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">연결 상태</div>
+                    <div class="status-value" id="connectionStatus">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">메시지 수</div>
+                    <div class="status-value" id="messageCount">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">현재 테마</div>
+                    <div class="status-value" id="currentTheme">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">현재 언어</div>
+                    <div class="status-value" id="currentLanguage">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">위젯 위치</div>
+                    <div class="status-value" id="widgetPosition">-</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="demo-section">
+            <h3><span class="emoji">💻</span> 통합 코드 예제</h3>
+            <p>이 데모와 동일한 위젯을 여러분의 웹사이트에 쉽게 통합할 수 있습니다:</p>
+            
+            <div class="code-block">
+&lt;!-- 기본 통합 --&gt;
+&lt;script src="https://cdn.yoursite.com/dual-lambda-rag-chat-widget.min.js" 
+        data-api-url="https://api.yoursite.com/chat"
+        data-websocket-url="wss://api.yoursite.com/ws"
+        data-theme="light"
+        data-position="bottom-right"
+        data-language="ko"
+        data-primary-color="#667eea"
+        data-title="AI 지원"&gt;
+&lt;/script&gt;
+            </div>
+            
+            <p>또는 JavaScript API를 사용하여 프로그래밍 방식으로 제어:</p>
+            
+            <div class="code-block">
+// 위젯 초기화
+window.DualLambdaRAGChat.init({
+    apiUrl: 'https://api.yoursite.com/chat',
+    websocketUrl: 'wss://api.yoursite.com/ws',
+    theme: 'light',
+    position: 'bottom-right',
+    language: 'ko',
+    primaryColor: '#667eea',
+    title: 'AI 지원'
+});
+
+// 이벤트 리스너
+window.DualLambdaRAGChat.on('open', () => {
+    console.log('채팅 시작');
+});
+
+window.DualLambdaRAGChat.on('message', (message) => {
+    console.log('새 메시지:', message);
+});
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 전역 변수
+        let currentTheme = 'light';
+        let currentLanguage = 'ko';
+        let currentPosition = 'bottom-right';
+        let currentColor = '#667eea';
+        let positionIndex = 0;
+        let colorIndex = 0;
+        
+        const positions = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
+        const colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe'];
+        const testMessages = [
+            'AI 채팅 기능에 대해 설명해주세요',
+            'RAG 시스템은 어떻게 작동하나요?',
+            '이 위젯의 주요 기능은 무엇인가요?',
+            '실시간 스트리밍은 어떻게 구현되나요?'
+        ];
+
+        // 위젯 제어 함수들
+        function openWidget() {
+            if (window.DualLambdaRAGChatWidget) {
+                window.DualLambdaRAGChatWidget.open();
+            }
+        }
+
+        function closeWidget() {
+            if (window.DualLambdaRAGChatWidget) {
+                window.DualLambdaRAGChatWidget.close();
+            }
+        }
+
+        function sendTestMessage() {
+            if (window.DualLambdaRAGChatWidget) {
+                const message = testMessages[Math.floor(Math.random() * testMessages.length)];
+                window.DualLambdaRAGChatWidget.sendMessage(message);
+                openWidget(); // 메시지 전송 후 위젯 열기
+            }
+        }
+
+        function clearChat() {
+            if (window.DualLambdaRAGChatWidget) {
+                window.DualLambdaRAGChatWidget.clearChat();
+            }
+        }
+
+        function toggleTheme() {
+            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+            updateWidget();
+        }
+
+        function changePosition() {
+            positionIndex = (positionIndex + 1) % positions.length;
+            currentPosition = positions[positionIndex];
+            updateWidget();
+        }
+
+        function changeColor() {
+            colorIndex = (colorIndex + 1) % colors.length;
+            currentColor = colors[colorIndex];
+            updateWidget();
+        }
+
+        function toggleLanguage() {
+            currentLanguage = currentLanguage === 'ko' ? 'en' : 'ko';
+            updateWidget();
+        }
+
+        function updateWidget() {
+            if (window.DualLambdaRAGChatWidget) {
+                window.DualLambdaRAGChatWidget.updateConfig({
+                    theme: currentTheme,
+                    position: currentPosition,
+                    primaryColor: currentColor,
+                    language: currentLanguage
+                });
+                updateStatus();
+            }
+        }
+
+        function updateStatus() {
+            if (window.DualLambdaRAGChatWidget) {
+                document.getElementById('widgetStatus').textContent = 
+                    window.DualLambdaRAGChatWidget.isOpen() ? '열림 🟢' : '닫힘 🔴';
+                document.getElementById('connectionStatus').textContent = 
+                    window.DualLambdaRAGChatWidget.isConnected() ? '연결됨 🟢' : '연결 안됨 🔴';
+                document.getElementById('messageCount').textContent = 
+                    window.DualLambdaRAGChatWidget.getMessageCount() || '0';
+            }
+            
+            document.getElementById('currentTheme').textContent = 
+                currentTheme === 'light' ? '라이트 ☀️' : '다크 🌙';
+            document.getElementById('currentLanguage').textContent = 
+                currentLanguage === 'ko' ? '한국어 🇰🇷' : 'English 🇺🇸';
+            document.getElementById('widgetPosition').textContent = 
+                currentPosition.replace('-', ' ').toUpperCase() + ' 📍';
+        }
+
+        // 위젯 이벤트 리스너
+        document.addEventListener('DOMContentLoaded', function() {
+            // 위젯이 로드될 때까지 대기
+            const checkWidget = setInterval(() => {
+                if (window.DualLambdaRAGChatWidget) {
+                    clearInterval(checkWidget);
+                    
+                    // 이벤트 리스너 등록
+                    window.DualLambdaRAGChatWidget.on('open', () => {
+                        console.log('위젯 열림');
+                        updateStatus();
+                    });
+                    
+                    window.DualLambdaRAGChatWidget.on('close', () => {
+                        console.log('위젯 닫힘');
+                        updateStatus();
+                    });
+                    
+                    window.DualLambdaRAGChatWidget.on('message-sent', (message) => {
+                        console.log('메시지 전송:', message);
+                        updateStatus();
+                    });
+                    
+                    window.DualLambdaRAGChatWidget.on('message-received', (message) => {
+                        console.log('메시지 수신:', message);
+                        updateStatus();
+                    });
+                    
+                    // 초기 상태 업데이트
+                    updateStatus();
+                }
+            }, 100);
+        });
+
+        // 상태를 1초마다 업데이트
+        setInterval(updateStatus, 1000);
+
+        // 페이지 이탈 시 정리
+        window.addEventListener('beforeunload', function() {
+            if (window.DualLambdaRAGChatWidget) {
+                window.DualLambdaRAGChatWidget.destroy();
+            }
+        });
+    </script>
+
+    <!-- Dual Lambda RAG Chat Widget -->
+    <script>
+        // 위젯 설정
+        window.DualLambdaRAGChatConfig = {
+            apiUrl: 'https://your-api-gateway-url.amazonaws.com/prod/chat',
+            websocketUrl: 'wss://your-websocket-url.amazonaws.com/prod',
+            theme: 'light',
+            position: 'bottom-right',
+            language: 'ko',
+            primaryColor: '#667eea',
+            secondaryColor: '#f7fafc',
+            title: 'AI 채팅 지원',
+            subtitle: 'Dual Lambda RAG',
+            welcomeMessage: '안녕하세요! 무엇을 도와드릴까요?',
+            placeholderText: '메시지를 입력하세요...',
+            autoOpen: false,
+            showWelcomeMessage: true,
+            enableTypingIndicator: true,
+            maxMessages: 50,
+            width: 380,
+            height: 600,
+            borderRadius: 16,
+            shadows: true,
+            debug: true, // 데모이므로 디버그 모드 활성화
+            
+            // 커스텀 메시지
+            customMessages: {
+                title: 'AI 채팅 지원',
+                subtitle: 'Dual Lambda RAG 시스템',
+                welcomeMessage: '안녕하세요! 저는 AI 어시스턴트입니다. 궁금한 것이 있으시면 언제든 물어보세요!',
+                placeholderText: '질문을 입력해주세요...',
+                sendButton: '전송',
+                clearChatButton: '대화 지우기',
+                typingIndicator: '답변을 생성하고 있습니다...',
+                connectionLost: '연결이 끊어졌습니다. 재연결을 시도합니다.',
+                reconnecting: '재연결 중...',
+                errorMessage: '죄송합니다. 일시적인 오류가 발생했습니다. 다시 시도해주세요.',
+                retryButton: '다시 시도',
+                poweredBy: 'Powered by Dual Lambda RAG'
+            },
+            
+            // 이벤트 핸들러
+            events: {
+                onOpen: () => {
+                    console.log('채팅창이 열렸습니다');
+                },
+                onClose: () => {
+                    console.log('채팅창이 닫혔습니다');
+                },
+                onMessageSent: (message) => {
+                    console.log('메시지 전송:', message);
+                },
+                onMessageReceived: (message) => {
+                    console.log('메시지 수신:', message);
+                },
+                onError: (error) => {
+                    console.error('위젯 오류:', error);
+                }
+            }
+        };
+    </script>
+    
+    <!-- 실제 위젯 스크립트를 여기에 로드 -->
+    <!-- <script src="../dist/dual-lambda-rag-chat-widget.min.js"></script> -->
+    
+    <!-- 데모용 모의 위젯 객체 -->
+    <script>
+        // 데모를 위한 모의 위젯 구현
+        window.DualLambdaRAGChatWidget = {
+            _isOpen: false,
+            _isConnected: false,
+            _messageCount: 0,
+            _config: window.DualLambdaRAGChatConfig,
+            _listeners: {},
+            
+            init: function(config) {
+                this._config = { ...this._config, ...config };
+                console.log('위젯 초기화됨:', this._config);
+            },
+            
+            open: function() {
+                this._isOpen = true;
+                this._emit('open');
+                console.log('위젯 열림');
+            },
+            
+            close: function() {
+                this._isOpen = false;
+                this._emit('close');
+                console.log('위젯 닫힘');
+            },
+            
+            sendMessage: function(message) {
+                this._messageCount++;
+                this._emit('message-sent', { content: message, id: Date.now() });
+                
+                // 모의 응답 시뮬레이션
+                setTimeout(() => {
+                    this._messageCount++;
+                    this._emit('message-received', { 
+                        content: '안녕하세요! 이것은 데모 응답입니다. 실제 환경에서는 AI가 실시간으로 답변을 생성합니다.', 
+                        id: Date.now() + 1 
+                    });
+                }, 1500);
+            },
+            
+            clearChat: function() {
+                this._messageCount = 0;
+                console.log('채팅 지워짐');
+            },
+            
+            updateConfig: function(newConfig) {
+                this._config = { ...this._config, ...newConfig };
+                console.log('설정 업데이트됨:', newConfig);
+            },
+            
+            isOpen: function() {
+                return this._isOpen;
+            },
+            
+            isConnected: function() {
+                return this._isConnected;
+            },
+            
+            getMessageCount: function() {
+                return this._messageCount;
+            },
+            
+            on: function(event, callback) {
+                if (!this._listeners[event]) {
+                    this._listeners[event] = [];
+                }
+                this._listeners[event].push(callback);
+            },
+            
+            _emit: function(event, data) {
+                if (this._listeners[event]) {
+                    this._listeners[event].forEach(callback => callback(data));
+                }
+            },
+            
+            destroy: function() {
+                this._listeners = {};
+                console.log('위젯 정리됨');
+            }
+        };
+        
+        // 연결 상태 시뮬레이션
+        setTimeout(() => {
+            window.DualLambdaRAGChatWidget._isConnected = true;
+            console.log('서버 연결됨');
+        }, 2000);
+    </script>
+</body>
+</html>

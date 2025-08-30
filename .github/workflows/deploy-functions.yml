@@ -1,0 +1,436 @@
+name: Deploy Lambda Functions
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'lambda-functions/**'
+      - 'lambda-layers/**'
+      - 'modules/**'
+      - 'lib/**'
+      - '.github/workflows/deploy-functions.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lambda-functions/**'
+      - 'lambda-layers/**'
+      - 'modules/**'
+      - 'lib/**'
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: 18
+
+jobs:
+  test:
+    name: Test Lambda Functions
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: |
+          npm test
+          npm run test:unit
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Run linting
+        run: |
+          npm run lint
+          npm run lint:fix
+
+      - name: Check TypeScript types (if applicable)
+        run: |
+          if [ -f "tsconfig.json" ]; then
+            npm run type-check
+          fi
+
+      - name: Build Lambda layers
+        run: |
+          npm run build:layer
+
+      - name: Build Lambda functions
+        run: |
+          npm run build:functions
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-builds-${{ github.sha }}
+          path: |
+            lambda-functions/*/
+            lambda-layers/*/
+          retention-days: 7
+
+  deploy-dev:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment: development
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-builds-${{ github.sha }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare Lambda functions
+        run: npm run build:lambda:prepare
+
+      - name: Deploy Lambda Layer
+        id: deploy-layer
+        run: |
+          # Create and deploy Lambda layer
+          cd lambda-layers/rag-modules
+          zip -r ../../rag-modules-layer.zip .
+          cd ../..
+          
+          LAYER_VERSION=$(aws lambda publish-layer-version \
+            --layer-name dual-lambda-rag-modules-layer-dev \
+            --zip-file fileb://rag-modules-layer.zip \
+            --compatible-runtimes nodejs18.x nodejs20.x \
+            --description "Shared modules for RAG Lambda functions (dev)" \
+            --query 'Version' --output text)
+          
+          echo "layer_version=$LAYER_VERSION" >> $GITHUB_OUTPUT
+          echo "::notice::Lambda Layer deployed with version $LAYER_VERSION"
+
+      - name: Deploy Chat Handler Lambda
+        run: |
+          cd lambda-functions/chat-handler
+          zip -r ../../chat-handler.zip .
+          cd ../..
+          
+          aws lambda update-function-code \
+            --function-name dual-lambda-rag-chat-handler-dev \
+            --zip-file fileb://chat-handler.zip
+          
+          aws lambda update-function-configuration \
+            --function-name dual-lambda-rag-chat-handler-dev \
+            --layers arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:layer:dual-lambda-rag-modules-layer-dev:${{ steps.deploy-layer.outputs.layer_version }}
+          
+          # Wait for function to be updated
+          aws lambda wait function-updated \
+            --function-name dual-lambda-rag-chat-handler-dev
+
+      - name: Deploy Admin Handler Lambda
+        run: |
+          cd lambda-functions/admin-handler
+          zip -r ../../admin-handler.zip .
+          cd ../..
+          
+          aws lambda update-function-code \
+            --function-name dual-lambda-rag-admin-handler-dev \
+            --zip-file fileb://admin-handler.zip
+          
+          aws lambda update-function-configuration \
+            --function-name dual-lambda-rag-admin-handler-dev \
+            --layers arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:layer:dual-lambda-rag-modules-layer-dev:${{ steps.deploy-layer.outputs.layer_version }}
+          
+          # Wait for function to be updated
+          aws lambda wait function-updated \
+            --function-name dual-lambda-rag-admin-handler-dev
+
+      - name: Update function aliases
+        run: |
+          # Update chat handler alias
+          aws lambda update-alias \
+            --function-name dual-lambda-rag-chat-handler-dev \
+            --name live \
+            --function-version '$LATEST'
+          
+          # Update admin handler alias  
+          aws lambda update-alias \
+            --function-name dual-lambda-rag-admin-handler-dev \
+            --name live \
+            --function-version '$LATEST'
+
+      - name: Run post-deployment tests
+        run: |
+          # Test Lambda functions
+          npm run test:lambda:dev
+          
+          # Test API endpoints
+          npm run test:api:dev
+
+      - name: Warm up functions
+        run: |
+          # Invoke functions to prevent cold starts
+          aws lambda invoke \
+            --function-name dual-lambda-rag-chat-handler-dev:live \
+            --payload '{"httpMethod":"GET","path":"/api/health"}' \
+            /tmp/chat-warmup.json
+          
+          aws lambda invoke \
+            --function-name dual-lambda-rag-admin-handler-dev:live \
+            --payload '{"httpMethod":"GET","path":"/api/admin/status"}' \
+            /tmp/admin-warmup.json
+
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-builds-${{ github.sha }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run comprehensive tests
+        run: |
+          npm test
+          npm run test:integration
+          npm run test:e2e
+
+      - name: Prepare Lambda functions
+        run: npm run build:lambda:prepare
+
+      - name: Deploy Lambda Layer
+        id: deploy-layer-prod
+        run: |
+          cd lambda-layers/rag-modules
+          zip -r ../../rag-modules-layer.zip .
+          cd ../..
+          
+          LAYER_VERSION=$(aws lambda publish-layer-version \
+            --layer-name dual-lambda-rag-modules-layer-prod \
+            --zip-file fileb://rag-modules-layer.zip \
+            --compatible-runtimes nodejs18.x nodejs20.x \
+            --description "Shared modules for RAG Lambda functions (prod)" \
+            --query 'Version' --output text)
+          
+          echo "layer_version=$LAYER_VERSION" >> $GITHUB_OUTPUT
+          echo "::notice::Lambda Layer deployed with version $LAYER_VERSION"
+
+      - name: Create Lambda function versions
+        id: create-versions
+        run: |
+          # Create new versions with updated code
+          cd lambda-functions/chat-handler
+          zip -r ../../chat-handler.zip .
+          cd ../..
+          
+          aws lambda update-function-code \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --zip-file fileb://chat-handler.zip
+          
+          aws lambda update-function-configuration \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --layers arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID_PROD }}:layer:dual-lambda-rag-modules-layer-prod:${{ steps.deploy-layer-prod.outputs.layer_version }}
+          
+          aws lambda wait function-updated \
+            --function-name dual-lambda-rag-chat-handler-prod
+          
+          CHAT_VERSION=$(aws lambda publish-version \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --description "Deploy from commit ${{ github.sha }}" \
+            --query 'Version' --output text)
+          
+          cd lambda-functions/admin-handler
+          zip -r ../../admin-handler.zip .
+          cd ../..
+          
+          aws lambda update-function-code \
+            --function-name dual-lambda-rag-admin-handler-prod \
+            --zip-file fileb://admin-handler.zip
+          
+          aws lambda update-function-configuration \
+            --function-name dual-lambda-rag-admin-handler-prod \
+            --layers arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID_PROD }}:layer:dual-lambda-rag-modules-layer-prod:${{ steps.deploy-layer-prod.outputs.layer_version }}
+          
+          aws lambda wait function-updated \
+            --function-name dual-lambda-rag-admin-handler-prod
+          
+          ADMIN_VERSION=$(aws lambda publish-version \
+            --function-name dual-lambda-rag-admin-handler-prod \
+            --description "Deploy from commit ${{ github.sha }}" \
+            --query 'Version' --output text)
+          
+          echo "chat_version=$CHAT_VERSION" >> $GITHUB_OUTPUT
+          echo "admin_version=$ADMIN_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Blue-Green Deployment
+        run: |
+          # Get current live versions
+          CURRENT_CHAT_VERSION=$(aws lambda get-alias \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --name live \
+            --query 'FunctionVersion' --output text)
+          
+          CURRENT_ADMIN_VERSION=$(aws lambda get-alias \
+            --function-name dual-lambda-rag-admin-handler-prod \
+            --name live \
+            --query 'FunctionVersion' --output text)
+          
+          echo "Current versions - Chat: $CURRENT_CHAT_VERSION, Admin: $CURRENT_ADMIN_VERSION"
+          echo "New versions - Chat: ${{ steps.create-versions.outputs.chat_version }}, Admin: ${{ steps.create-versions.outputs.admin_version }}"
+          
+          # Test new versions before switching
+          aws lambda invoke \
+            --function-name dual-lambda-rag-chat-handler-prod:${{ steps.create-versions.outputs.chat_version }} \
+            --payload '{"httpMethod":"GET","path":"/api/health"}' \
+            /tmp/chat-test.json
+          
+          aws lambda invoke \
+            --function-name dual-lambda-rag-admin-handler-prod:${{ steps.create-versions.outputs.admin_version }} \
+            --payload '{"httpMethod":"GET","path":"/api/admin/status"}' \
+            /tmp/admin-test.json
+          
+          # Gradual traffic shifting (if using weighted aliases)
+          # Start with 10% traffic to new version
+          aws lambda update-alias \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --name live \
+            --function-version ${{ steps.create-versions.outputs.chat_version }} \
+            --routing-config AdditionalVersionWeights="{\"$CURRENT_CHAT_VERSION\"=0.9}"
+          
+          aws lambda update-alias \
+            --function-name dual-lambda-rag-admin-handler-prod \
+            --name live \
+            --function-version ${{ steps.create-versions.outputs.admin_version }} \
+            --routing-config AdditionalVersionWeights="{\"$CURRENT_ADMIN_VERSION\"=0.9}"
+
+      - name: Monitor deployment
+        run: |
+          # Wait 5 minutes and monitor metrics
+          sleep 300
+          
+          # Check error rates
+          ERROR_COUNT=$(aws cloudwatch get-metric-statistics \
+            --namespace AWS/Lambda \
+            --metric-name Errors \
+            --dimensions Name=FunctionName,Value=dual-lambda-rag-chat-handler-prod \
+            --start-time $(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%S) \
+            --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
+            --period 300 \
+            --statistics Sum \
+            --query 'Datapoints[0].Sum' --output text)
+          
+          if [ "$ERROR_COUNT" != "None" ] && [ "$ERROR_COUNT" -gt 5 ]; then
+            echo "High error rate detected: $ERROR_COUNT errors"
+            exit 1
+          fi
+
+      - name: Complete deployment
+        run: |
+          # Switch 100% traffic to new versions
+          aws lambda update-alias \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --name live \
+            --function-version ${{ steps.create-versions.outputs.chat_version }}
+          
+          aws lambda update-alias \
+            --function-name dual-lambda-rag-admin-handler-prod \
+            --name live \
+            --function-version ${{ steps.create-versions.outputs.admin_version }}
+
+      - name: Run post-deployment tests
+        run: |
+          npm run test:smoke:prod
+          npm run test:e2e:prod
+
+      - name: Cleanup old versions
+        run: |
+          # Keep only last 5 versions
+          aws lambda list-versions-by-function \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --query 'Versions[:-5].Version' --output text | \
+            xargs -n 1 -I {} aws lambda delete-function --function-name dual-lambda-rag-chat-handler-prod:{}
+
+      - name: Notify success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: "🚀 Lambda functions deployed successfully to production!"
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deployment failed, rolling back..."
+          
+          # Get previous versions
+          PREVIOUS_CHAT_VERSION=$(aws lambda list-versions-by-function \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --query 'Versions[-2].Version' --output text)
+          
+          PREVIOUS_ADMIN_VERSION=$(aws lambda list-versions-by-function \
+            --function-name dual-lambda-rag-admin-handler-prod \
+            --query 'Versions[-2].Version' --output text)
+          
+          # Rollback aliases
+          aws lambda update-alias \
+            --function-name dual-lambda-rag-chat-handler-prod \
+            --name live \
+            --function-version $PREVIOUS_CHAT_VERSION
+          
+          aws lambda update-alias \
+            --function-name dual-lambda-rag-admin-handler-prod \
+            --name live \
+            --function-version $PREVIOUS_ADMIN_VERSION
+          
+          echo "Rollback completed"
+
+      - name: Notify failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: "❌ Lambda deployment failed and was rolled back!"
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
