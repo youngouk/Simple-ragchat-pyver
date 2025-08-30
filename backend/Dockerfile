@@ -15,6 +15,7 @@ WORKDIR /app
 # Copy dependency files
 COPY pyproject.toml .
 COPY .python-version .
+COPY README.md .
 
 # Create virtual environment and install dependencies
 RUN uv venv && \
