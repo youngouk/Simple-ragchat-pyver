@@ -140,9 +140,21 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # 미들웨어 설정
+# 배포 환경에서의 CORS 허용 도메인은 환경 변수 ALLOWED_ORIGINS(콤마 구분)로 확장 가능
+default_allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",
+]
+env_allowed_origins = os.getenv("ALLOWED_ORIGINS", "")
+if env_allowed_origins:
+    default_allowed_origins.extend([
+        origin.strip() for origin in env_allowed_origins.split(",") if origin.strip()
+    ])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:5173"],
+    allow_origins=default_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
