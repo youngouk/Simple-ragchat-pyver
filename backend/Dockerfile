@@ -38,6 +38,9 @@ WORKDIR /app
 # Copy virtual environment from builder
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 
+# Fix permissions for virtual environment executables
+RUN chmod +x /app/.venv/bin/*
+
 # Copy application code
 COPY --chown=app:app . .
 
