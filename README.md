@@ -139,9 +139,9 @@ cp .env.example .env
 # Google AI (필수)
 GOOGLE_API_KEY=your_google_api_key
 
-# Qdrant 벡터 DB
-QDRANT_URL=http://localhost:6333
-QDRANT_API_KEY=your_api_key  # 클라우드 사용 시
+# Qdrant 벡터 DB (클라우드 권장)
+QDRANT_URL=https://your-cluster.qdrant.io:6333
+QDRANT_API_KEY=your_qdrant_cloud_api_key
 
 # Multi-LLM 지원 (선택적)
 OPENAI_API_KEY=your_openai_key
@@ -155,11 +155,6 @@ COHERE_API_KEY=your_cohere_key
 ### 5. 서비스 실행
 
 ```bash
-# Qdrant 벡터 DB 실행
-docker run -d -p 6333:6333 -p 6334:6334 \
-  -v $(pwd)/qdrant_storage:/qdrant/storage \
-  --name qdrant qdrant/qdrant:v1.7.4
-
 # Python 백엔드 실행
 cd backend
 make dev
@@ -168,7 +163,7 @@ make dev
 cd web && npm run dev
 
 # 헬스체크
-curl http://localhost:8000/health
+curl http://localhost:8002/health
 ```
 
 ## 🛠️ 개발 워크플로우

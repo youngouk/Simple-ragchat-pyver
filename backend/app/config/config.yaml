@@ -9,7 +9,7 @@ server:
   port: 8000
 
 qdrant:
-  url: "${QDRANT_URL:-https://localhost:6333}"
+  url: "${QDRANT_URL}"
   api_key: "${QDRANT_API_KEY:-}"
   collection_name: "documents"
   vector_size: 768
