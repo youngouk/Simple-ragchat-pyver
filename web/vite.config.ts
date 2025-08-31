@@ -11,10 +11,6 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      '/admin': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
       '/admin-ws': {
         target: 'ws://localhost:8000',
         ws: true,
